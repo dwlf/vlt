@@ -12,10 +12,11 @@ import (
 // Vault represents an opened Obsidian vault. It carries the vault root
 // directory and a mutex for goroutine-safe operations.
 type Vault struct {
-	dir      string
-	registry *Registry
-	mu       sync.RWMutex
-	idxState indexedVault
+	dir           string
+	registry      *Registry
+	mu            sync.RWMutex
+	idxState      indexedVault
+	documentFault func(string) error
 }
 
 // Open opens a vault at the given directory path, validating that it exists.

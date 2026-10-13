@@ -1,6 +1,7 @@
 package vlt
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,9 @@ func lockTimeout() (time.Duration, bool) {
 	return defaultLockTimeout, true
 }
 
+// ErrLockTimeout identifies bounded contention without requiring prose parsing.
+var ErrLockTimeout = errors.New("vault lock timeout")
+
 // LockVault acquires an advisory lock on the vault directory.
 // If exclusive is true an exclusive (write) lock is taken; otherwise a shared
 // (read) lock is taken. The returned function releases the lock.
@@ -76,8 +80,13 @@ func LockVault(vaultDir string, exclusive bool) (func(), error) {
 			return release, nil
 		}
 		if bounded && time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out after %s waiting for vault lock %s -- another vlt process may be holding it (set VLT_LOCK_TIMEOUT to adjust)",
-				timeout, filepath.Join(vaultDir, LockFileName))
+			return nil, fmt.Errorf(
+				"%w: timed out after %s waiting for vault lock %s -- "+
+					"another vlt process may be holding it (set VLT_LOCK_TIMEOUT to adjust)",
+				ErrLockTimeout,
+				timeout,
+				filepath.Join(vaultDir, LockFileName),
+			)
 		}
 		time.Sleep(lockRetryInterval)
 	}

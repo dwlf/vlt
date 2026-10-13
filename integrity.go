@@ -432,3 +432,39 @@ func (v *Vault) IntegrityStatusAll() map[string]IntegrityStatus {
 func (v *Vault) IntegrityRegistryDir() string {
 	return v.registry.dir
 }
+
+// registerDurable reports persistence failure rather than claiming stale disk state is current.
+func (r *Registry) registerDurable(vaultDir, absPath string, content []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.setEntryLocked(vaultDir, absPath, content) {
+		return fmt.Errorf("registry path outside vault")
+	}
+	if err := os.MkdirAll(r.dir, 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(r.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = durableReplace(filepath.Join(r.dir, "registry.json"), data, 0600, nil)
+	return err
+}
+
+func (r *Registry) archiveDurable(vaultDir, source, destination string, data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.setEntryLocked(vaultDir, filepath.Join(vaultDir, destination), data) {
+		return fmt.Errorf("archive registry destination outside vault")
+	}
+	delete(r.entries, filepath.ToSlash(source))
+	if err := os.MkdirAll(r.dir, 0700); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(r.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = durableReplace(filepath.Join(r.dir, "registry.json"), encoded, 0600, nil)
+	return err
+}

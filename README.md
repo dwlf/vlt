@@ -819,3 +819,52 @@ Behaviour changes to note when upgrading: `move` onto an existing file now error
 Apache License 2.0. See [LICENSE](LICENSE) for full text.
 
 Copyright 2025 Ramiro Salas.
+
+
+## Bounded document transactions
+
+`ReplaceDocument(title, data, expectedSHA256, maxBytes)` compares the visible
+complete document hash, then publishes one complete replacement.
+`CreateDocument(relativePath, data, maxBytes)` refuses an existing destination.
+The caller holds its exclusive vault lock across reading, transformation and
+publication; the methods also serialize their Vault instance. Parent directories
+must already exist. Bounds must be positive and less than `math.MaxInt64`, and
+the new bytes must fit before any mutation.
+
+`DocumentResult.Save` distinguishes `not-saved`, `uncertain` and `durable`.
+Publication writes and flushes a temporary descriptor, renames it and flushes
+the containing directory. Errors after rename may have saved the document.
+`Integrity` separately reports `stale` or `current`: authoritative publication
+can be durable while persisting its derived registry fails. Repair that registry
+rather than repeating an unknown append. `RefreshDocumentIntegrity` updates
+registry bookkeeping for exact bytes already proved durable under the caller's
+exclusive lock.
+
+`DurableReadDocument(title, maxBytes)` reads with a limit from one descriptor,
+flushes that descriptor and its directory, then rechecks path components and
+inode identity. `ReadDocumentSnapshot` supplies a capped visible read without
+that durability barrier and requires a cooperating shared or exclusive caller
+lock. Neither reader changes note bytes. These operations do not claim power-loss
+certainty beyond the filesystem's flush contract or protection from hostile raw
+writers outside the cooperating lock.
+
+The configured root must itself be a real directory; its ancestors are
+canonicalized so macOS aliases work. All components below the anchored root
+reject symlinks; leaf files must be regular and have one hard link. Platforms
+without verifiable link count refuse. Capped reads reject growing or oversized
+files and never reopen a pathname to read data after syncing a different file.
+Directory-relative operations use `os.Root`; roots and file descriptors are
+closed with errors preserved.
+
+`ArchiveDocument(title, destination, maxBytes)` moves one bounded document into
+an unused path, flushes both source and destination directories, and durably
+replaces the registry's old path with the archive path. It uses the same save
+and integrity outcomes; rename or registry follow-up can therefore return an
+uncertain or durable/stale result. Native explicit restore uses this to preserve
+absent issue files in `.trash` without leaving their removed paths registered.
+
+Oversized snapshot errors expose `DocumentSizeError` with a capped incomplete
+prefix for source classification. The error never prints the prefix. Callers
+must not treat it as a full snapshot. Native uses this only to permit ordinary
+legacy display; native durable capture still refuses the2MiB bound and never
+retries an oversized native record with a larger limit.
